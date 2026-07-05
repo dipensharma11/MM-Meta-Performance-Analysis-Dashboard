@@ -381,6 +381,9 @@ function buildDims(){
       </div>`;
     con.appendChild(d);renderDimTbl(key,sortFilt(key,rows),mx);renderDimChart(key,rows);
   });
+  if(!con.children.length&&!((week.ads||[]).length)){
+    con.innerHTML=`<div style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:36px 28px;text-align:center"><div style="font-size:15px;font-weight:600;color:var(--text);margin-bottom:8px">KPIs only for this week</div><div style="font-size:13px;color:var(--muted);line-height:1.7;max-width:600px;margin:0 auto">Creative breakdowns (Narrative, Region, Ad Explorer) for this product begin from the week of <b style="color:var(--text)">Jun 29–Jul 5, 2026</b> onward — ad-level data for earlier weeks isn't retained in the source sheet.<br>Full <b style="color:var(--text)">Spend, ROAS, CAC &amp; New-Customer</b> history is in the <b style="color:var(--text)">Trends</b> and <b style="color:var(--text)">WoW</b> views above.</div></div>`;
+  }
 }
 function sortFilt(key,rows){
   const st=secState[key]||{sortBy:'spend',search:''};
