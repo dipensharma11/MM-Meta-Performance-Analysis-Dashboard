@@ -292,6 +292,133 @@ def mkrows(secmap, tot, narr_cr_day=None, is_narr=False):
     return rows
 
 
+def week_label(ws, we):
+    import datetime
+    s = datetime.date.fromisoformat(ws)
+    e = datetime.date.fromisoformat(we)
+    return f"{s.strftime('%b')} {s.day}\u2013{e.day}, {e.year}"
+
+
+def complete_weeks(days_present):
+    """All Monday-start weeks whose 7 days are all present in the data window."""
+    import datetime
+    dset = set(days_present)
+    out = []
+    d0 = datetime.date.fromisoformat(days_present[0])
+    d1 = datetime.date.fromisoformat(days_present[-1])
+    cur = d0 - datetime.timedelta(days=d0.weekday())
+    while cur + datetime.timedelta(days=6) <= d1:
+        wk = [(cur + datetime.timedelta(days=i)).isoformat() for i in range(7)]
+        if all(x in dset for x in wk):
+            out.append(wk)
+        cur += datetime.timedelta(days=7)
+    return out
+
+
+def build_week_from_days(day_entries, pwc_daily_prod, week_days):
+    """Merge 7 daily-detail entries into one weekly DASH_DATA-shaped entry.
+
+    Same math as the dashboard's client-side buildVirtualWeek: revenue is backed
+    out of stored roas*spend per day and re-blended; ads merged by name with
+    their per-region adsets summed. Creator dimension drops non-creators
+    ('None'/'Internal / None' etc.) per Dipen's correction; narrative
+    top_creators trimmed to top 3 (also non-creator-filtered).
+    """
+    ws, we = week_days[0], week_days[-1]
+    days = [d for d in day_entries if d["date"] in set(week_days)]
+    if not days:
+        return None
+    # KPIs from PWC daily rows summed across the week
+    sp = nc = rev = 0.0
+    for dd in week_days:
+        pk = pwc_daily_prod.get(dd)
+        if pk:
+            sp += pk["spend"] or 0
+            nc += pk["nc"] or 0
+            rev += (pk["roas"] or 0) * (pk["spend"] or 0)
+    kpis = {"spend": round(sp, 2), "nc": nc, "roas": round(rev / sp, 4) if sp else 0,
+            "cac": round(sp / (nc * F), 1) if nc else None, "aov": round(rev / nc, 1) if nc else None}
+
+    # sections: merge by canonical segment key
+    sections = {}
+    for dim in DIMS:
+        merged = {}
+        for d in days:
+            for r in d["sections"].get(dim, []):
+                if dim == "creator" and notcreator(r["segment"]):
+                    continue
+                k = akey(r["segment"])
+                m = merged.setdefault(k, {"segment": r["segment"], "sp": 0.0, "nc": 0.0, "rev": 0.0, "cmap": {}})
+                if r["spend"] > m["sp"]:
+                    m["segment"] = r["segment"]
+                m["sp"] += r["spend"] or 0
+                m["nc"] += r["nc"] or 0
+                m["rev"] += (r["roas"] or 0) * (r["spend"] or 0)
+                for c in r.get("top_creators", []):
+                    if notcreator(c["name"]):
+                        continue
+                    cm = m["cmap"].setdefault(c["name"], {"sp": 0.0, "rev": 0.0})
+                    cm["sp"] += c["spend"] or 0
+                    cm["rev"] += (c["roas"] or 0) * (c["spend"] or 0)
+        tot = sum(m["sp"] for m in merged.values())
+        rows = []
+        for m in merged.values():
+            row = {"segment": m["segment"], "spend": round(m["sp"], 2),
+                   "spend_pct": round(m["sp"] / tot * 100, 1) if tot else 0,
+                   "nc": m["nc"], "roas": round(m["rev"] / m["sp"], 4) if m["sp"] else 0,
+                   "cac": round(m["sp"] / (m["nc"] * F), 1) if m["nc"] else 0, "top_creators": []}
+            if dim == "narrative":
+                top = sorted(m["cmap"].items(), key=lambda kv: -kv[1]["sp"])[:3]
+                row["top_creators"] = [{"name": cn, "spend": round(v["sp"], 2),
+                                        "roas": round(v["rev"] / v["sp"], 2) if v["sp"] else 0}
+                                       for cn, v in top if v["sp"] > 0]
+            rows.append(row)
+        rows.sort(key=lambda x: -x["spend"])
+        sections[dim] = rows
+
+    # ads: merge by name; adsets summed per region
+    admap = {}
+    for d in days:
+        for a in d["ads"]:
+            m = admap.setdefault(a["name"], {"a": dict(a), "sp": 0.0, "nc": 0.0, "rev": 0.0, "reg": {}})
+            m["sp"] += a["spend"] or 0
+            m["nc"] += a["nc"] or 0
+            m["rev"] += (a["roas"] or 0) * (a["spend"] or 0)
+            if a.get("video") and not m["a"].get("video"):
+                m["a"]["video"] = a["video"]
+            for s in a.get("adsets", []):
+                rm = m["reg"].setdefault(s["region"], {"sp": 0.0, "nc": 0.0, "rev": 0.0, "funnel": s.get("funnel", "")})
+                rm["sp"] += s["spend"] or 0
+                rm["nc"] += s["nc"] or 0
+                rm["rev"] += (s["roas"] or 0) * (s["spend"] or 0)
+    tot_ads = sum(m["sp"] for m in admap.values())
+    ads = []
+    for name, m in admap.items():
+        base = m["a"]
+        regs = sorted(m["reg"].items(), key=lambda kv: -kv[1]["sp"])
+        adsets = [{"label": rg, "region": rg, "funnel": v["funnel"], "spend": round(v["sp"], 2), "nc": v["nc"],
+                   "roas": round(v["rev"] / v["sp"], 4) if v["sp"] else 0,
+                   "cac": round(v["sp"] / (v["nc"] * F), 1) if v["nc"] else None} for rg, v in regs]
+        ad = {"name": name, "spend": round(m["sp"], 2),
+              "spend_pct": round(m["sp"] / tot_ads * 100, 2) if tot_ads else 0, "nc": m["nc"],
+              "roas": round(m["rev"] / m["sp"], 4) if m["sp"] else 0,
+              "cac": round(m["sp"] / (m["nc"] * F), 1) if m["nc"] else None,
+              "narrative": base.get("narrative", ""), "adtype": base.get("adtype", ""),
+              "format": base.get("format", ""), "source": base.get("source", ""),
+              "funnel": base.get("funnel", ""), "creator": base.get("creator", ""),
+              "language": base.get("language", ""),
+              "region": regs[0][0] if regs else "", "adsets": adsets}
+        if base.get("video"):
+            ad["video"] = base["video"]
+        ads.append(ad)
+    ads.sort(key=lambda x: -x["spend"])
+
+    if kpis["spend"] <= 0 and not ads:
+        return None
+    return {"week_label": week_label(ws, we), "week_start": ws, "auto": True,
+            "kpis": kpis, "sections": sections, "ads": ads}
+
+
 def main():
     print("== Daily refresh starting ==")
 
@@ -475,6 +602,38 @@ def main():
     html = html[:m_data.start()] + "const DAILY_DATA=" + json.dumps(merged_data, separators=(",", ":")) + ";\n" + html[m_data.end():]
     m_detail2 = re.search(r"const DAILY_DETAIL=(\{.*?\});\n", html, re.DOTALL)
     html = html[:m_detail2.start()] + "const DAILY_DETAIL=" + json.dumps(merged_detail, separators=(",", ":")) + ";\n" + html[m_detail2.end():]
+
+    # ---- weekly: append/refresh completed Monday-start weeks into DASH_DATA ----
+    m_dash = re.search(r"const DASH_DATA=(\{.*?\});\n", html, re.DOTALL)
+    if not m_dash:
+        sys.exit("FATAL: could not find DASH_DATA in index.html -- aborting.")
+    dash = json.loads(m_dash.group(1))
+    week_added, week_updated = [], []
+    for wk_days in complete_weeks(days_present):
+        for prod in DASH:
+            entry = build_week_from_days(merged_detail.get(prod, []), pwc_daily.get(prod, {}), wk_days)
+            if not entry:
+                continue
+            arr = dash.get(prod, [])
+            idx = next((i for i, w in enumerate(arr) if w.get("week_start") == entry["week_start"]), None)
+            if idx is None:
+                arr.append(entry)
+                week_added.append((prod, entry["week_label"]))
+            else:
+                ex = arr[idx]
+                kpi_only = not (ex.get("ads") or []) and not any((ex.get("sections") or {}).get(k) for k in (ex.get("sections") or {}))
+                if ex.get("auto") or kpi_only:
+                    arr[idx] = entry
+                    week_updated.append((prod, entry["week_label"]))
+            dash[prod] = arr
+    for prod in dash:
+        dash[prod] = sorted(dash[prod], key=lambda w: (w.get("week_start") or "9999-99-99"))
+    if week_added or week_updated:
+        html = re.sub(r"const DASH_DATA=\{.*?\};\n",
+                      lambda _: "const DASH_DATA=" + json.dumps(dash, separators=(",", ":")) + ";\n",
+                      html, count=1, flags=re.DOTALL)
+    print(f"Weekly: {len(week_added)} added {sorted(set(w for _, w in week_added))}, "
+          f"{len(week_updated)} upgraded {sorted(set(w for _, w in week_updated))}")
 
     with open(html_path, "w", encoding="utf-8") as f:
         f.write(html)
