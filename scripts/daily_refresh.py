@@ -389,6 +389,8 @@ def build_week_from_days(day_entries, pwc_daily_prod, week_days):
             m["clk"] += a.get("clk", 0) or 0
             m["v3"] += a.get("v3", 0) or 0
             m["v75"] += a.get("v75", 0) or 0
+            for i in a.get("ids", []):
+                m.setdefault("ids", {})[i] = 1
             if a.get("video") and not m["a"].get("video"):
                 m["a"]["video"] = a["video"]
             for s in a.get("adsets", []):
@@ -396,6 +398,8 @@ def build_week_from_days(day_entries, pwc_daily_prod, week_days):
                 rm["sp"] += s["spend"] or 0
                 rm["nc"] += s["nc"] or 0
                 rm["rev"] += (s["roas"] or 0) * (s["spend"] or 0)
+                for i in s.get("ids", []):
+                    rm.setdefault("ids", {})[i] = 1
     tot_ads = sum(m["sp"] for m in admap.values())
     ads = []
     for name, m in admap.items():
@@ -403,7 +407,8 @@ def build_week_from_days(day_entries, pwc_daily_prod, week_days):
         regs = sorted(m["reg"].items(), key=lambda kv: -kv[1]["sp"])
         adsets = [{"label": rg, "region": rg, "funnel": v["funnel"], "spend": round(v["sp"], 2), "nc": v["nc"],
                    "roas": round(v["rev"] / v["sp"], 4) if v["sp"] else 0,
-                   "cac": round(v["sp"] / (v["nc"] * F), 1) if v["nc"] else None} for rg, v in regs]
+                   "cac": round(v["sp"] / (v["nc"] * F), 1) if v["nc"] else None,
+                   **({"ids": sorted(v["ids"])} if v.get("ids") else {})} for rg, v in regs]
         ad = {"name": name, "spend": round(m["sp"], 2),
               "spend_pct": round(m["sp"] / tot_ads * 100, 2) if tot_ads else 0, "nc": m["nc"],
               "roas": round(m["rev"] / m["sp"], 4) if m["sp"] else 0,
@@ -418,6 +423,8 @@ def build_week_from_days(day_entries, pwc_daily_prod, week_days):
             ad["clk"] = int(m["clk"])
             ad["v3"] = int(m["v3"])
             ad["v75"] = int(m["v75"])
+        if m.get("ids"):
+            ad["ids"] = sorted(m["ids"])
         if base.get("video"):
             ad["video"] = base["video"]
         ads.append(ad)
@@ -541,6 +548,9 @@ def main():
             a["clk"] = a.get("clk", 0) + clk
             a["v3"] = a.get("v3", 0) + v3
             a["v75"] = a.get("v75", 0) + v75
+            if adid:
+                a.setdefault("ids", {})[adid] = 1
+                a.setdefault("regids", {}).setdefault(reg, {})[adid] = 1
             a["dims"] = dm
             br = a["byreg"][reg]
             br[0] += sp
@@ -565,10 +575,12 @@ def main():
                     continue
                 dm = a["dims"] or {}
                 regs = sorted(a["byreg"].items(), key=lambda kv: -kv[1][0])
+                regids = a.get("regids", {})
                 adsets = [{"label": rg, "region": rg, "funnel": dm.get("funnel", "") or "",
                            "spend": round(v[0], 2), "nc": v[1],
                            "roas": round(v[2] * F / v[0], 4) if v[0] else 0,
-                           "cac": round(v[0] / (v[1] * F), 1) if v[1] else None} for rg, v in regs]
+                           "cac": round(v[0] / (v[1] * F), 1) if v[1] else None,
+                           **({"ids": sorted(regids[rg])} if regids.get(rg) else {})} for rg, v in regs]
                 dom = regs[0][0] if regs else ""
                 ad = {"name": name, "spend": round(a["sp"], 2),
                       "spend_pct": round(a["sp"] / tot * 100, 2) if tot else 0, "nc": a["nc"],
@@ -583,6 +595,8 @@ def main():
                     ad["clk"] = int(a.get("clk", 0))
                     ad["v3"] = int(a.get("v3", 0))
                     ad["v75"] = int(a.get("v75", 0))
+                if a.get("ids"):
+                    ad["ids"] = sorted(a["ids"])
                 if dm.get("video"):
                     ad["video"] = dm["video"]
                 ads.append(ad)
