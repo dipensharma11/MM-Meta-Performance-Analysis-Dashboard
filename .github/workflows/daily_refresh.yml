@@ -2,8 +2,9 @@ name: Daily dashboard refresh
 
 on:
   schedule:
-    # 11:30 AM IST = 06:00 UTC
-    - cron: '0 6 * * *'
+    # ~11 AM IST after GitHub's queue delay; 1:30 PM sweep catches late sheet updates
+    - cron: '0 5 * * *'
+    - cron: '0 8 * * *'
   workflow_dispatch: {}
 
 permissions:
