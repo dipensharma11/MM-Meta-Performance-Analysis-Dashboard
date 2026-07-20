@@ -344,8 +344,11 @@ def build_week_from_days(day_entries, pwc_daily_prod, week_days):
             sp += pk["spend"] or 0
             nc += pk["nc"] or 0
             rev += (pk["roas"] or 0) * (pk["spend"] or 0)
+    # NOTE: nc here comes from PWC, which is already true NC (PWC's own daily
+    # CAC = spend/NC with no factor). The 0.76 factor is only for raw DD ad-level
+    # NC counts -- applying it here double-counted it and inflated CAC by ~32%.
     kpis = {"spend": round(sp, 2), "nc": nc, "roas": round(rev / sp, 4) if sp else 0,
-            "cac": round(sp / (nc * F), 1) if nc else None, "aov": round(rev / nc, 1) if nc else None}
+            "cac": round(sp / nc, 1) if nc else None, "aov": round(rev / nc, 1) if nc else None}
 
     # sections: merge by canonical segment key
     sections = {}
