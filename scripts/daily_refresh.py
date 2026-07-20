@@ -349,6 +349,20 @@ def build_week_from_days(day_entries, pwc_daily_prod, week_days):
     # NC counts -- applying it here double-counted it and inflated CAC by ~32%.
     kpis = {"spend": round(sp, 2), "nc": nc, "roas": round(rev / sp, 4) if sp else 0,
             "cac": round(sp / nc, 1) if nc else None, "aov": round(rev / nc, 1) if nc else None}
+    # Sanity guard: a blended weekly CAC/ROAS is an NC/spend-weighted average of
+    # the daily PWC values, so it must lie within the week's daily min-max range.
+    # A formula regression (like the 0.76 double-application fixed in 90f94cb)
+    # lands outside that range -- abort the publish rather than ship bad KPIs.
+    dcacs = [pwc_daily_prod[dd]["cac"] for dd in week_days
+             if pwc_daily_prod.get(dd) and pwc_daily_prod[dd].get("cac")]
+    droas = [pwc_daily_prod[dd]["roas"] for dd in week_days
+             if pwc_daily_prod.get(dd) and pwc_daily_prod[dd].get("roas")]
+    if kpis["cac"] and dcacs and not (min(dcacs) - 1 <= kpis["cac"] <= max(dcacs) + 1):
+        sys.exit(f"FATAL: weekly CAC {kpis['cac']} outside daily range "
+                 f"[{min(dcacs)}, {max(dcacs)}] for week {ws} -- formula bug? Aborting.")
+    if kpis["roas"] and droas and not (min(droas) - 0.005 <= kpis["roas"] <= max(droas) + 0.005):
+        sys.exit(f"FATAL: weekly ROAS {kpis['roas']} outside daily range "
+                 f"[{min(droas)}, {max(droas)}] for week {ws} -- formula bug? Aborting.")
 
     # sections: merge by canonical segment key
     sections = {}
