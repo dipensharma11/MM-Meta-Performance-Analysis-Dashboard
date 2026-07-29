@@ -1,0 +1,34 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Sign in · MM Meta Dashboard</title>
+<style>
+:root{--bg:#ffffff;--card:#f6f8fa;--border:#d0d7de;--text:#1f2328;--muted:#656d76;--accent:#0969da}
+*{box-sizing:border-box}
+body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:var(--bg);color:var(--text);font-family:'Segoe UI',system-ui,sans-serif}
+.card{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:40px 36px;max-width:400px;width:calc(100% - 32px);text-align:center}
+.brand{font-size:20px;font-weight:700;margin-bottom:6px}
+.sub{font-size:13px;color:var(--muted);margin-bottom:28px}
+.btn{display:inline-flex;align-items:center;gap:10px;background:#fff;border:1px solid var(--border);color:var(--text);font-size:14px;font-weight:600;padding:11px 20px;border-radius:8px;text-decoration:none;cursor:pointer;transition:border-color .15s,box-shadow .15s}
+.btn:hover{border-color:var(--accent);box-shadow:0 1px 6px rgba(0,0,0,.06)}
+.g{width:18px;height:18px}
+.note{font-size:12px;color:var(--muted);margin-top:16px}
+.err{font-size:13px;color:#cf222e;margin-top:18px;min-height:18px}
+</style></head><body>
+<div class="card">
+  <div class="brand">Meta Weekly Creative dashboard</div>
+  <div class="sub">Mosaic Wellness — internal access only</div>
+  <a class="btn" href="/api/login">
+    <svg class="g" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9 3.6l6.7-6.7C35.6 2.4 30.1 0 24 0 14.6 0 6.4 5.4 2.5 13.3l7.8 6.1C12.2 13.2 17.6 9.5 24 9.5z"/><path fill="#4285F4" d="M46.5 24.5c0-1.6-.1-3.1-.4-4.5H24v9h12.7c-.5 3-2.2 5.5-4.7 7.2l7.2 5.6c4.2-3.9 6.6-9.6 6.6-16.3z"/><path fill="#FBBC05" d="M10.3 28.4c-.5-1.5-.8-3-.8-4.4s.3-3 .8-4.4l-7.8-6.1C.9 16.7 0 20.2 0 24s.9 7.3 2.5 10.5l7.8-6.1z"/><path fill="#34A853" d="M24 48c6.1 0 11.6-2 15.5-5.5l-7.2-5.6c-2 1.4-4.6 2.2-8.3 2.2-6.4 0-11.8-3.7-13.7-9.1l-7.8 6.1C6.4 42.6 14.6 48 24 48z"/></svg>
+    Sign in with Google
+  </a>
+  <div class="note">Use your <b>@mosaicwellness.in</b> account</div>
+  <div class="err" id="err"></div>
+</div>
+<script>
+var p=new URLSearchParams(location.search),e=p.get('error'),el=document.getElementById('err');
+if(e==='domain')el.textContent='That account isn’t a @mosaicwellness.in address. Please sign in with your Mosaic account.';
+else if(e==='state')el.textContent='Your sign-in session expired. Please try again.';
+else if(e)el.textContent='Sign-in failed. Please try again.';
+if(p.get('logout'))el.textContent='You’ve been signed out.';
+</script></body></html>
