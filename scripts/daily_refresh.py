@@ -349,20 +349,38 @@ def build_week_from_days(day_entries, pwc_daily_prod, week_days):
     # NC counts -- applying it here double-counted it and inflated CAC by ~32%.
     kpis = {"spend": round(sp, 2), "nc": nc, "roas": round(rev / sp, 4) if sp else 0,
             "cac": round(sp / nc, 1) if nc else None, "aov": round(rev / nc, 1) if nc else None}
-    # Sanity guard: a blended weekly CAC/ROAS is an NC/spend-weighted average of
-    # the daily PWC values, so it must lie within the week's daily min-max range.
-    # A formula regression (like the 0.76 double-application fixed in 90f94cb)
-    # lands outside that range -- abort the publish rather than ship bad KPIs.
-    dcacs = [pwc_daily_prod[dd]["cac"] for dd in week_days
-             if pwc_daily_prod.get(dd) and pwc_daily_prod[dd].get("cac")]
-    droas = [pwc_daily_prod[dd]["roas"] for dd in week_days
-             if pwc_daily_prod.get(dd) and pwc_daily_prod[dd].get("roas")]
-    if kpis["cac"] and dcacs and not (min(dcacs) - 1 <= kpis["cac"] <= max(dcacs) + 1):
-        sys.exit(f"FATAL: weekly CAC {kpis['cac']} outside daily range "
-                 f"[{min(dcacs)}, {max(dcacs)}] for week {ws} -- formula bug? Aborting.")
-    if kpis["roas"] and droas and not (min(droas) - 0.005 <= kpis["roas"] <= max(droas) + 0.005):
+    # Sanity guard: a blended weekly CAC/ROAS is a weighted average of the daily
+    # PWC values, so it must lie within the week's daily min-max range. A formula
+    # regression (like the 0.76 double-application fixed in 90f94cb) lands outside
+    # that range -- abort the publish rather than ship bad KPIs.
+    #
+    # ROAS is a spend-weighted average of daily ROAS -> the invariant holds for any
+    # day that had spend. CAC is an NC-weighted average of daily CAC -> it holds
+    # ONLY when every spending day also has NC>0; a day with spend but zero NC (or a
+    # week with <2 NC-days) legitimately pushes blended CAC past any single daily
+    # CAC, so the check is inapplicable there and is skipped. The CAC band is
+    # recomputed from the SAME days we summed (PWC's own cac cell is sometimes blank
+    # on low-volume days, which would falsely shrink the band). A genuine regression
+    # still trips the big multi-day products, so it aborts there as intended.
+    droas = [(pwc_daily_prod[dd].get("roas") or 0) for dd in week_days
+             if pwc_daily_prod.get(dd) and (pwc_daily_prod[dd].get("spend") or 0) > 0]
+    if kpis["roas"] and len(droas) >= 2 and not (min(droas) - 0.005 <= kpis["roas"] <= max(droas) + 0.005):
         sys.exit(f"FATAL: weekly ROAS {kpis['roas']} outside daily range "
                  f"[{min(droas)}, {max(droas)}] for week {ws} -- formula bug? Aborting.")
+    dcacs, spend_zero_nc = [], False
+    for dd in week_days:
+        pk = pwc_daily_prod.get(dd)
+        if not pk:
+            continue
+        dnc, dsp = pk.get("nc") or 0, pk.get("spend") or 0
+        if dnc > 0:
+            dcacs.append(dsp / dnc)
+        elif dsp > 0:
+            spend_zero_nc = True
+    if kpis["cac"] and len(dcacs) >= 2 and not spend_zero_nc \
+            and not (min(dcacs) - 1 <= kpis["cac"] <= max(dcacs) + 1):
+        sys.exit(f"FATAL: weekly CAC {kpis['cac']} outside daily range "
+                 f"[{round(min(dcacs), 1)}, {round(max(dcacs), 1)}] for week {ws} -- formula bug? Aborting.")
 
     # sections: merge by canonical segment key
     sections = {}
